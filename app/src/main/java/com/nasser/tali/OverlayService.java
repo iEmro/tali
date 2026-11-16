@@ -1,28 +1,30 @@
 package com.nasser.tali;
 
+import android.app.Dialog;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.IBinder;
 import android.view.Gravity;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowManager;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public class OverlayService extends Service {
-    private static final int GOLD = 0xFFC9A55C;
-    private static final int IVORY = 0xFFF5EFE0;
-    private static final int DARK = 0xFF0B1210;
+    private static final int WHITE = 0xFFFFFFFF;
+    private static final int SOFT = 0xFFE9F7F9;
+    private static final int DEEP = 0xFF0A2230;
+    private static final int EDGE = 0x66FFFFFF;
 
-    private WindowManager wm;
-    private View view;
+    private Dialog dialog;
 
     @Override
     public IBinder onBind(Intent i) { return null; }
@@ -43,42 +45,53 @@ public class OverlayService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (view != null) return START_NOT_STICKY;
-        wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+        if (dialog != null) return START_NOT_STICKY;
 
-        FrameLayout container = new FrameLayout(this);
-        container.setPadding(dp(16), dp(8), dp(16), dp(16));
+        SharedPreferences sp = getSharedPreferences("tali_prefs", MODE_PRIVATE);
+        int transparency = sp.getInt("transparency", 40);
+        int position = sp.getInt("position", 15);
+
+        WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+        boolean blur = Build.VERSION.SDK_INT >= 31 && wm.isCrossWindowBlurEnabled();
+
+        int alpha = Math.round(255 * (100 - transparency) / 100f);
+        if (!blur) alpha = Math.max(alpha, 0xE6);
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
         card.setPadding(dp(24), dp(22), dp(24), dp(22));
+
+        int top = (alpha << 24) | 0x175066;
+        int bottom = (alpha << 24) | 0x0A2230;
         GradientDrawable bg = new GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0xF5142019, 0xF50B1210});
+            GradientDrawable.Orientation.TOP_BOTTOM, new int[]{top, bottom});
         bg.setCornerRadius(dp(28));
-        bg.setStroke(dp(1), 0x99C9A55C);
-        card.setBackground(bg);
-        card.setElevation(dp(10));
+        bg.setStroke(dp(1), EDGE);
 
         TextView head = new TextView(this);
         head.setText("الفاتحة  ·  ١");
         head.setTextSize(13);
-        head.setTextColor(GOLD);
-        head.setLetterSpacing(0.08f);
-
-        View line = new View(this);
-        line.setBackgroundColor(0x66C9A55C);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(48), dp(1));
-        lp.setMargins(0, dp(12), 0, dp(14));
+        head.setTextColor(0xE6FFFFFF);
+        head.setLetterSpacing(0.06f);
+        head.setPadding(dp(16), dp(5), dp(16), dp(5));
+        GradientDrawable pill = new GradientDrawable();
+        pill.setCornerRadius(dp(20));
+        pill.setStroke(dp(1), EDGE);
+        pill.setColor(0x1AFFFFFF);
+        head.setBackground(pill);
 
         TextView ayah = new TextView(this);
         ayah.setText("بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ");
-        ayah.setTextSize(26);
-        ayah.setTextColor(IVORY);
+        ayah.setTextSize(27);
+        ayah.setTextColor(WHITE);
         ayah.setGravity(Gravity.CENTER);
         ayah.setTypeface(Typeface.SERIF);
-        ayah.setLineSpacing(0f, 1.4f);
+        ayah.setLineSpacing(0f, 1.45f);
+        LinearLayout.LayoutParams ayahLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT);
+        ayahLp.topMargin = dp(18);
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -87,37 +100,49 @@ public class OverlayService extends Service {
         LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT);
-        rowLp.topMargin = dp(22);
+        rowLp.topMargin = dp(24);
 
         row.addView(makeButton(IconButton.CLOSE, false, "إغلاق"));
         row.addView(makeButton(IconButton.CLOCK, false, "تأجيل"));
         row.addView(makeButton(IconButton.CHECK, true, "تم"));
 
         card.addView(head);
-        card.addView(line, lp);
-        card.addView(ayah);
+        card.addView(ayah, ayahLp);
         card.addView(row, rowLp);
-        container.addView(card);
 
-        WindowManager.LayoutParams p = new WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT);
-        p.gravity = Gravity.TOP;
-        p.y = dp(60);
+        dialog = new Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+        dialog.setCancelable(false);
+        dialog.setCanceledOnTouchOutside(false);
+        dialog.setContentView(card);
 
-        view = container;
-        wm.addView(view, p);
+        Window w = dialog.getWindow();
+        w.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+        w.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
+        w.setDimAmount(0f);
+        w.setBackgroundDrawable(bg);
+        w.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        int room = screenH - dp(260);
+        WindowManager.LayoutParams a = w.getAttributes();
+        a.y = Math.max(0, Math.round(room * position / 100f));
+        w.setAttributes(a);
+        int width = getResources().getDisplayMetrics().widthPixels - dp(32);
+        w.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT);
+        if (blur) {
+            w.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND);
+            w.setBackgroundBlurRadius(dp(30));
+        }
+
+        dialog.show();
         return START_NOT_STICKY;
     }
 
     @Override
     public void onDestroy() {
-        if (view != null) {
-            wm.removeView(view);
-            view = null;
+        if (dialog != null) {
+            dialog.dismiss();
+            dialog = null;
         }
         super.onDestroy();
     }
@@ -144,19 +169,22 @@ public class OverlayService extends Service {
 
             if (filled) {
                 paint.setStyle(Paint.Style.FILL);
-                paint.setColor(GOLD);
+                paint.setColor(SOFT);
                 canvas.drawCircle(cx, cy, r, paint);
             } else {
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(0x14FFFFFF);
+                canvas.drawCircle(cx, cy, r, paint);
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(1.5f * d);
-                paint.setColor(0x99C9A55C);
+                paint.setColor(EDGE);
                 canvas.drawCircle(cx, cy, r, paint);
             }
 
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(2.4f * d);
             paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setColor(filled ? DARK : (type == CLOSE ? 0xFFB8B2A3 : GOLD));
+            paint.setColor(filled ? DEEP : (type == CLOSE ? 0xCCFFFFFF : WHITE));
             float s = r * 0.42f;
 
             if (type == CHECK) {
