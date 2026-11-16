@@ -140,7 +140,9 @@ public class OverlayService extends Service {
         row.addView(makeButton(IconButton.PREV, false, "الآية السابقة",
             () -> show(shown - 1)));
 
-        card.addView(head);
+        card.addView(head, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT));
         card.addView(scroll, scrollLp);
         card.addView(row, rowLp);
 
