@@ -16,6 +16,7 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 public class OverlayService extends Service {
@@ -25,6 +26,11 @@ public class OverlayService extends Service {
     private static final int EDGE = 0x66FFFFFF;
 
     private Dialog dialog;
+    private QuranRepo repo;
+    private SharedPreferences sp;
+    private TextView head, ayah;
+    private ScrollView scroll;
+    private int shown;
 
     @Override
     public IBinder onBind(Intent i) { return null; }
@@ -33,13 +39,30 @@ public class OverlayService extends Service {
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    private View makeButton(int type, boolean filled, String desc) {
+    private void show(int idx) {
+        if (repo.size() == 0) {
+            head.setText("تالي");
+            ayah.setText("لم أجد ملف المصحف (quran.txt)");
+            ayah.setTextSize(20);
+            return;
+        }
+        if (idx < 0) idx = repo.size() - 1;
+        if (idx >= repo.size()) idx = 0;
+        shown = idx;
+        head.setText(repo.header(idx));
+        String t = repo.texts.get(idx);
+        ayah.setText(t);
+        ayah.setTextSize(t.length() > 200 ? 20 : (t.length() > 100 ? 23 : 27));
+        scroll.scrollTo(0, 0);
+    }
+
+    private View makeButton(int type, boolean filled, String desc, Runnable action) {
         IconButton b = new IconButton(this, type, filled);
         b.setContentDescription(desc);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(56), dp(56));
-        p.setMargins(dp(10), 0, dp(10), 0);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(52), dp(52));
+        p.setMargins(dp(6), 0, dp(6), 0);
         b.setLayoutParams(p);
-        b.setOnClickListener(v -> stopSelf());
+        b.setOnClickListener(v -> action.run());
         return b;
     }
 
@@ -47,7 +70,8 @@ public class OverlayService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (dialog != null) return START_NOT_STICKY;
 
-        SharedPreferences sp = getSharedPreferences("tali_prefs", MODE_PRIVATE);
+        repo = QuranRepo.get(this);
+        sp = getSharedPreferences("tali_prefs", MODE_PRIVATE);
         int transparency = sp.getInt("transparency", 40);
         int position = sp.getInt("position", 15);
 
@@ -69,8 +93,7 @@ public class OverlayService extends Service {
         bg.setCornerRadius(dp(28));
         bg.setStroke(dp(1), EDGE);
 
-        TextView head = new TextView(this);
-        head.setText("الفاتحة  ·  ١");
+        head = new TextView(this);
         head.setTextSize(13);
         head.setTextColor(0xE6FFFFFF);
         head.setLetterSpacing(0.06f);
@@ -81,17 +104,18 @@ public class OverlayService extends Service {
         pill.setColor(0x1AFFFFFF);
         head.setBackground(pill);
 
-        TextView ayah = new TextView(this);
-        ayah.setText("بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ");
-        ayah.setTextSize(27);
+        ayah = new TextView(this);
         ayah.setTextColor(WHITE);
         ayah.setGravity(Gravity.CENTER);
         ayah.setTypeface(Typeface.SERIF);
         ayah.setLineSpacing(0f, 1.45f);
-        LinearLayout.LayoutParams ayahLp = new LinearLayout.LayoutParams(
+
+        scroll = new MaxHeightScrollView(this);
+        scroll.addView(ayah);
+        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT);
-        ayahLp.topMargin = dp(18);
+        scrollLp.topMargin = dp(18);
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -102,13 +126,27 @@ public class OverlayService extends Service {
             LinearLayout.LayoutParams.WRAP_CONTENT);
         rowLp.topMargin = dp(24);
 
-        row.addView(makeButton(IconButton.CLOSE, false, "إغلاق"));
-        row.addView(makeButton(IconButton.CLOCK, false, "تأجيل"));
-        row.addView(makeButton(IconButton.CHECK, true, "تم"));
+        row.addView(makeButton(IconButton.NEXT, false, "الآية التالية",
+            () -> show(shown + 1)));
+        row.addView(makeButton(IconButton.CLOCK, false, "تأجيل",
+            () -> stopSelf()));
+        row.addView(makeButton(IconButton.CHECK, true, "تم",
+            () -> {
+                int next = shown + 1;
+                if (next >= repo.size()) next = 0;
+                sp.edit().putInt("current", next).apply();
+                stopSelf();
+            }));
+        row.addView(makeButton(IconButton.PREV, false, "الآية السابقة",
+            () -> show(shown - 1)));
 
         card.addView(head);
-        card.addView(ayah, ayahLp);
+        card.addView(scroll, scrollLp);
         card.addView(row, rowLp);
+
+        int start = sp.getInt("current", 0);
+        if (repo.size() > 0 && start >= repo.size()) start = 0;
+        show(start);
 
         dialog = new Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
         dialog.setCancelable(false);
@@ -123,7 +161,7 @@ public class OverlayService extends Service {
         w.setBackgroundDrawable(bg);
         w.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         int screenH = getResources().getDisplayMetrics().heightPixels;
-        int room = screenH - dp(260);
+        int room = screenH - dp(300);
         WindowManager.LayoutParams a = w.getAttributes();
         a.y = Math.max(0, Math.round(room * position / 100f));
         w.setAttributes(a);
@@ -147,8 +185,18 @@ public class OverlayService extends Service {
         super.onDestroy();
     }
 
+    private static class MaxHeightScrollView extends ScrollView {
+        MaxHeightScrollView(Context c) { super(c); }
+
+        @Override
+        protected void onMeasure(int w, int h) {
+            int max = (int) (getResources().getDisplayMetrics().heightPixels * 0.4f);
+            super.onMeasure(w, MeasureSpec.makeMeasureSpec(max, MeasureSpec.AT_MOST));
+        }
+    }
+
     private static class IconButton extends View {
-        static final int CHECK = 0, CLOCK = 1, CLOSE = 2;
+        static final int CHECK = 0, CLOCK = 1, NEXT = 2, PREV = 3;
         private final int type;
         private final boolean filled;
         private final float d;
@@ -184,7 +232,7 @@ public class OverlayService extends Service {
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(2.4f * d);
             paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setColor(filled ? DEEP : (type == CLOSE ? 0xCCFFFFFF : WHITE));
+            paint.setColor(filled ? DEEP : WHITE);
             float s = r * 0.42f;
 
             if (type == CHECK) {
@@ -194,9 +242,12 @@ public class OverlayService extends Service {
                 canvas.drawCircle(cx, cy, s * 1.2f, paint);
                 canvas.drawLine(cx, cy, cx, cy - s * 0.7f, paint);
                 canvas.drawLine(cx, cy, cx + s * 0.55f, cy + s * 0.3f, paint);
+            } else if (type == NEXT) {
+                canvas.drawLine(cx + s * 0.5f, cy - s, cx - s * 0.5f, cy, paint);
+                canvas.drawLine(cx - s * 0.5f, cy, cx + s * 0.5f, cy + s, paint);
             } else {
-                canvas.drawLine(cx - s, cy - s, cx + s, cy + s, paint);
-                canvas.drawLine(cx + s, cy - s, cx - s, cy + s, paint);
+                canvas.drawLine(cx - s * 0.5f, cy - s, cx + s * 0.5f, cy, paint);
+                canvas.drawLine(cx + s * 0.5f, cy, cx - s * 0.5f, cy + s, paint);
             }
         }
     }
