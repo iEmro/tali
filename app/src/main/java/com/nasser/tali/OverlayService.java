@@ -28,7 +28,7 @@ public class OverlayService extends Service {
     private Dialog dialog;
     private QuranRepo repo;
     private SharedPreferences sp;
-    private TextView head, ayah;
+    private TextView head, ayah, part;
     private ScrollView scroll;
     private int shown;
 
@@ -42,6 +42,7 @@ public class OverlayService extends Service {
     private void show(int idx) {
         if (repo.size() == 0) {
             head.setText("تالي");
+            part.setText("");
             ayah.setText("لم أجد ملف المصحف (quran.txt)");
             ayah.setTextSize(20);
             return;
@@ -50,6 +51,7 @@ public class OverlayService extends Service {
         if (idx >= repo.size()) idx = 0;
         shown = idx;
         head.setText(repo.header(idx));
+        part.setText(repo.partLine(idx));
         String t = repo.texts.get(idx);
         ayah.setText(t);
         ayah.setTextSize(t.length() > 200 ? 20 : (t.length() > 100 ? 23 : 27));
@@ -117,6 +119,15 @@ public class OverlayService extends Service {
             LinearLayout.LayoutParams.WRAP_CONTENT);
         scrollLp.topMargin = dp(18);
 
+        part = new TextView(this);
+        part.setTextSize(13);
+        part.setTextColor(0xB3FFFFFF);
+        part.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams partLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT);
+        partLp.topMargin = dp(14);
+
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
@@ -124,7 +135,7 @@ public class OverlayService extends Service {
         LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT);
-        rowLp.topMargin = dp(24);
+        rowLp.topMargin = dp(20);
 
         row.addView(makeButton(IconButton.NEXT, false, "الآية التالية",
             () -> show(shown + 1)));
@@ -144,6 +155,7 @@ public class OverlayService extends Service {
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT));
         card.addView(scroll, scrollLp);
+        card.addView(part, partLp);
         card.addView(row, rowLp);
 
         int start = sp.getInt("current", 0);
